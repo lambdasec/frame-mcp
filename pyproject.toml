@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "frame-mcp"
+version = "0.1.0"
+description = "Model Context Protocol server for the Frame security scanner."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "lambdasec" }]
+keywords = ["mcp", "security", "sast", "frame", "taint-analysis"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = [
+    "frame-security[scan]>=1.0.0",
+    "mcp>=1.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/lambdasec/frame"
+Repository = "https://github.com/lambdasec/frame-mcp"
+
+[project.scripts]
+frame-mcp = "frame_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/frame_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/frame_mcp",
+    "README.md",
+    "LICENSE",
+    "server.json",
+    "tests",
+]

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.lambdasec/frame-mcp",
+  "description": "MCP server for the Frame security scanner: scan, verify, fix, exploit, packs and separation logic.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/lambdasec/frame-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "frame-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "FRAME_LLM_BASE_URL",
+          "description": "Base URL of an OpenAI-compatible LLM endpoint for the AI detection, triage, fix and exploit features.",
+          "isRequired": false
+        },
+        {
+          "name": "FRAME_LLM_API_KEY",
+          "description": "API key for the LLM endpoint, when the endpoint requires one.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "FRAME_LLM_MODEL",
+          "description": "Model name to request from the LLM endpoint.",
+          "isRequired": false
+        },
+        {
+          "name": "FRAME_LLM_REPO_ROOT",
+          "description": "Repository root the LLM layer resolves relative paths against.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
