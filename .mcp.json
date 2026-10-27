@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "frame": {
+      "command": "uvx",
+      "args": ["frame-mcp"]
+    }
+  }
+}
