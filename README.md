@@ -112,7 +112,7 @@ Add to Zed `settings.json` under `context_servers`:
 
 | Tool | Purpose | Read only |
 | --- | --- | --- |
-| `scan` | Scan a file or directory for vulnerabilities and return findings as JSON. | yes |
+| `scan` | Scan a file or directory for vulnerabilities and return findings as JSON; `ai` adds LLM detection and triage, `hunt_authz` the agentic authorization hunt. | yes |
 | `write_baseline` | Scan a path and record the findings as a baseline file. | no |
 | `verify` | Re-scan the files behind earlier findings and report whether each is fixed. | yes |
 | `fix` | Generate and verify fixes for findings. Returns a diff by default. | no |
@@ -132,9 +132,8 @@ The `scan` tool with `ai=true`, along with `fix` and `exploit`, call an LLM thro
 | `FRAME_LLM_BASE_URL` | Base URL of the LLM endpoint, for example a local server or a hosted API. |
 | `FRAME_LLM_API_KEY` | API key for the endpoint, when it requires one. |
 | `FRAME_LLM_MODEL` | Model name to request. |
-| `FRAME_LLM_REPO_ROOT` | Repository root for relative path resolution. |
 
-These are inherited from the server process environment and forwarded to each `frame` subprocess. The plain `scan` (taint analysis plus verification) needs none of them.
+These are inherited from the server process environment and forwarded to each `frame` subprocess. Every other setting (streaming, timeouts, agent budgets, the hunt's budgets) is a key of the `[llm]` / `[hunt]` tables in the project's `.frame.toml`, which each `frame` command reads. The plain `scan` (taint analysis plus verification) needs none of them.
 
 ## Exploit authorization
 

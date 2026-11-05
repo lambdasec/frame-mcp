@@ -45,6 +45,12 @@ class ScanArgsTest(unittest.TestCase):
             ],
         )
 
+    def test_hunt_authz_flag(self):
+        args = server._build_scan_args("/code", hunt_authz=True)
+        self.assertEqual(
+            args, ["scan", "/code", "-f", "json", "--fail-on", "none", "--hunt-authz"]
+        )
+
     def test_changed_ref_empty_string_included(self):
         # An empty ref is meaningful (frame treats --changed with no value as HEAD).
         args = server._build_scan_args("/code", changed_ref="")

@@ -27,13 +27,13 @@ from mcp.types import ToolAnnotations
 
 FindingsInput = Union[str, dict, list]
 
-# Environment variables the Frame LLM layer reads. They are inherited from the
-# server process environment and forwarded to every subprocess.
+# Environment variables the Frame LLM layer reads (Frame 1.1: every other LLM setting is
+# the `[llm]` table of the project's .frame.toml). They are inherited from the server
+# process environment and forwarded to every subprocess.
 _FRAME_LLM_ENV = (
     "FRAME_LLM_BASE_URL",
     "FRAME_LLM_API_KEY",
     "FRAME_LLM_MODEL",
-    "FRAME_LLM_REPO_ROOT",
 )
 
 mcp = _Server("frame")
@@ -82,7 +82,7 @@ def _parse_output(proc: subprocess.CompletedProcess) -> Any:
 def _run_frame(
     args: list[str],
     *,
-    timeout: float,
+    timeout: Optional[float],
     ok_codes: tuple[int, ...] = (0, 1),
 ) -> Any:
     """Run ``frame <args>`` and return parsed JSON, raising on an error exit.
@@ -156,12 +156,15 @@ def _build_scan_args(
     root: Optional[str] = None,
     no_cross_file: bool = False,
     packs: Optional[list[str]] = None,
+    hunt_authz: bool = False,
 ) -> list[str]:
     args = ["scan", path, "-f", "json", "--fail-on", fail_on]
     if language:
         args += ["-l", language]
     if ai:
         args += ["--ai"]
+    if hunt_authz:
+        args += ["--hunt-authz"]
     if changed_ref is not None:
         args += ["--changed", changed_ref]
     if files:
@@ -256,6 +259,7 @@ def scan(
     root: Optional[str] = None,
     no_cross_file: bool = False,
     packs: Optional[list[str]] = None,
+    hunt_authz: bool = False,
 ) -> Any:
     """Scan a file or directory for security vulnerabilities with Frame.
 
@@ -264,8 +268,13 @@ def scan(
     layer (needs the FRAME_LLM_* environment variables). ``changed_ref`` scans
     only files that differ from a git ref; ``files`` restricts the scan to a
     list of files; ``baseline`` reports only findings absent from a baseline
-    file; ``packs`` loads extra framework packs. This tool does not modify any
-    files.
+    file; ``packs`` loads extra framework packs. ``hunt_authz=True`` adds the
+    agentic authorization hunt (IDOR, missing authorization, privilege
+    escalation; needs a model): every handler gets a verdict, and the result's
+    ``hunt`` section lists how it ended and what it left unresolved. A hunt runs
+    one agent per group of handlers and can take hours on a large application;
+    it is bounded by its step budgets, not by a timeout. This tool does not
+    modify any files.
     """
     args = _build_scan_args(
         path,
@@ -279,8 +288,9 @@ def scan(
         root=root,
         no_cross_file=no_cross_file,
         packs=packs,
+        hunt_authz=hunt_authz,
     )
-    timeout = 1800.0 if ai else 300.0
+    timeout = None if hunt_authz else (1800.0 if ai else 300.0)
     return _run_frame(args, timeout=timeout, ok_codes=(0, 1))
 
 
