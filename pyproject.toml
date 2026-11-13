@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "frame-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Model Context Protocol server for the Frame security scanner."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "frame-security[scan]>=1.1.0",
+    "frame-security[scan]>=1.1.5",
     "mcp>=1.2.0",
 ]
 

@@ -120,8 +120,18 @@ Add to Zed `settings.json` under `context_servers`:
 | `packs_list` | List the framework packs a scan would load. | yes |
 | `packs_check` | Validate framework pack files. | yes |
 | `solve` | Check a separation logic entailment `P \|- Q`. | yes |
+| `engine_handlers` | Every entry point the engine finds: protected or not, reaches a resource or not, the sink kinds it reaches. | yes |
+| `engine_handler_facts` | One handler or function: protection, sinks, decorators, parameters, the engine's own findings, its source. | yes |
+| `engine_siblings` | The handlers of the same class or file, with the guards that hold at each one's data accesses. | yes |
+| `engine_trace` | The data flows the engine found in a function, each with its CWE and evidence level. | yes |
+| `engine_callers` | Every call of a function across the project, with each call's line of code. | yes |
+| `engine_callees` | What a function calls, with where each callee is defined in the project. | yes |
+| `engine_guards` | The conditions that hold on every feasible path to a line. | yes |
+| `engine_check` | Decide a claim about a line (`guarded_by` a pattern, `scoped_by_identity`): proved, refuted with a witness path, or unknown. | yes |
 
 A `security-review` prompt chains `scan` (with the AI layer), `verify`, and an offer to `fix`.
+
+The `engine_*` tools are the queries Frame's own authorization hunt gives its agents, for any agent. The first call on a project starts a `frame query <path> --serve` process (Frame 1.1.5 or later) that translates the project once, with no model; later calls on that project answer from memory, and the process rebuilds its index by itself when a source file changes. Every answer carries `result`, the `evidence` it rests on, the `resolution` (callers and callees match by simple name, not by type), its `limits`, the `index` it was computed over (`files`, `handlers`, `build_ms`, `rebuilt`) and `query_ms`.
 
 ## AI features and environment variables
 

@@ -7,12 +7,15 @@ sits next to the running Python interpreter, falling back to ``PATH``.
 
 from __future__ import annotations
 
+import atexit
+import itertools
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -242,6 +245,137 @@ def _build_packs_check_args(files: list[str]) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# warm engine queries (`frame query DIR --serve`, Frame 1.1.5+)
+# --------------------------------------------------------------------------
+_QUERY_TOOLS = (
+    "handlers", "handler_facts", "siblings", "trace", "callers", "callees", "guards", "check",
+)
+
+
+def _build_query_serve_args(
+    path: str, language: Optional[str] = None, packs: Optional[list[str]] = None
+) -> list[str]:
+    args = ["query", path, "--serve"]
+    if language:
+        args += ["-l", language]
+    for pack in packs or []:
+        args += ["--pack", pack]
+    return args
+
+
+class _QueryServer:
+    """One long-lived ``frame query --serve`` process for one project.
+
+    The process translates the project once and answers each request from memory; it
+    rebuilds by itself when a source file under the project changes. Requests on one
+    process are serialized (one JSON line out, one JSON line back).
+    """
+
+    def __init__(self, args: list[str]):
+        self.args = args
+        self.proc: Optional[subprocess.Popen] = None
+        self.lock = threading.Lock()
+        self.ids = itertools.count(1)
+
+    def _start(self) -> None:
+        try:
+            self.proc = subprocess.Popen(
+                [_frame_executable(), *self.args],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=_subprocess_env(),
+                bufsize=1,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "The 'frame' executable was not found. Install frame-security "
+                "with: pip install 'frame-security[scan]'."
+            ) from exc
+
+    def _exchange(self, request: dict) -> Optional[dict]:
+        if self.proc is None or self.proc.poll() is not None:
+            self._start()
+        assert self.proc is not None and self.proc.stdin and self.proc.stdout
+        try:
+            self.proc.stdin.write(json.dumps(request) + "\n")
+            self.proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            return None
+        while True:
+            line = self.proc.stdout.readline()
+            if not line:
+                return None                      # the process ended
+            try:
+                answer = json.loads(line)
+            except ValueError:
+                continue
+            if answer.get("id") == request["id"]:
+                return answer
+
+    def ask(self, tool: str, args: dict) -> dict:
+        with self.lock:
+            request = {"id": next(self.ids), "tool": tool, "args": args}
+            answer = self._exchange(request)
+            if answer is None:                   # restart once: the process may have died
+                self.close()
+                answer = self._exchange({**request, "id": next(self.ids)})
+            if answer is None:
+                stderr = ""
+                if self.proc is not None and self.proc.stderr is not None:
+                    try:
+                        stderr = self.proc.stderr.read() or ""
+                    except (OSError, ValueError):
+                        stderr = ""
+                self.close()
+                hint = " (frame query needs frame-security 1.1.5 or later)" \
+                    if "invalid choice" in stderr else ""
+                raise RuntimeError(
+                    f"frame query ended without answering{hint}: {stderr.strip()[-2000:]}"
+                )
+            answer.pop("id", None)
+            return answer
+
+    def close(self) -> None:
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        try:
+            if proc.stdin:
+                proc.stdin.close()
+            proc.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            proc.kill()
+
+
+_QUERY_SERVERS: dict[tuple, _QueryServer] = {}
+_QUERY_SERVERS_LOCK = threading.Lock()
+
+
+def _query(path: str, tool: str, args: dict, language: Optional[str] = None,
+           packs: Optional[list[str]] = None) -> Any:
+    """Ask the warm engine for ``path`` (started on first use, kept for later calls)."""
+    root = str(Path(path).expanduser().resolve())
+    if not Path(root).is_dir():
+        raise RuntimeError(f"{path} is not a directory")
+    key = (root, language or "", tuple(packs or ()))
+    with _QUERY_SERVERS_LOCK:
+        server = _QUERY_SERVERS.get(key)
+        if server is None:
+            server = _QUERY_SERVERS[key] = _QueryServer(
+                _build_query_serve_args(root, language, packs))
+    clean = {k: v for k, v in args.items() if v is not None}
+    return server.ask(tool, clean)
+
+
+@atexit.register
+def _close_query_servers() -> None:
+    for server in list(_QUERY_SERVERS.values()):
+        server.close()
+
+
+# --------------------------------------------------------------------------
 # tools
 # --------------------------------------------------------------------------
 @mcp.tool(
@@ -428,6 +562,98 @@ def solve(entailment: str, model: bool = False) -> Any:
     """
     args = _build_solve_args(entailment, model=model)
     return _run_frame(args, timeout=60.0, ok_codes=(0, 1))
+
+
+_ENGINE_NOTE = (
+    " The first call on a project translates it (seconds to minutes on a large one); later "
+    "calls answer from memory and the index rebuilds by itself when a source file changes. "
+    "Every answer carries `result`, the `evidence` it rests on, the `resolution` (how a name "
+    "became a function), its `limits`, the `index` it was computed over and `query_ms`."
+)
+
+
+def _engine_tool(title: str):
+    def register(fn):
+        fn.__doc__ = (fn.__doc__ or "") + _ENGINE_NOTE    # read when the tool is registered
+        return mcp.tool(annotations=ToolAnnotations(title=title, readOnlyHint=True))(fn)
+    return register
+
+
+@_engine_tool("List the entry points the engine knows")
+def engine_handlers(path: str, language: Optional[str] = None,
+                    packs: Optional[list[str]] = None) -> Any:
+    """Every entry point (route handler) Frame finds in the project at ``path``: name, file,
+    line, whether an authorization gate or the caller's identity protects it, whether it
+    reaches a resource / database, and the sink kinds it reaches."""
+    return _query(path, "handlers", {}, language, packs)
+
+
+@_engine_tool("Engine facts for a handler or function")
+def engine_handler_facts(path: str, name: str, file: Optional[str] = None,
+                         language: Optional[str] = None,
+                         packs: Optional[list[str]] = None) -> Any:
+    """Facts for one handler or function ``name`` (``file`` picks among same-named ones):
+    protection, resource reach, sinks, decorators, parameters, the engine's own findings in
+    its range, and its source."""
+    return _query(path, "handler_facts", {"name": name, "file": file}, language, packs)
+
+
+@_engine_tool("Sibling handlers and the guards at their data accesses")
+def engine_siblings(path: str, name: str, file: Optional[str] = None,
+                    language: Optional[str] = None,
+                    packs: Optional[list[str]] = None) -> Any:
+    """The handlers of the same class or file as ``name``, each with its gate and the
+    conditions that hold at its data accesses: a sibling that checks what this one does not
+    is the usual missing-authorization signal."""
+    return _query(path, "siblings", {"name": name, "file": file}, language, packs)
+
+
+@_engine_tool("Data flows the engine found in a function")
+def engine_trace(path: str, name: str, file: Optional[str] = None,
+                 language: Optional[str] = None,
+                 packs: Optional[list[str]] = None) -> Any:
+    """The engine's source-to-sink flows inside ``name``, each with its CWE and evidence
+    level (solver-verified, data-flow, matched). A flow is listed where its sink is."""
+    return _query(path, "trace", {"name": name, "file": file}, language, packs)
+
+
+@_engine_tool("Who calls a function")
+def engine_callers(path: str, name: str, language: Optional[str] = None,
+                   packs: Optional[list[str]] = None) -> Any:
+    """Every call of ``name`` across the project, with the caller, file, line and the call's
+    line of code. Matched by simple name, not by type."""
+    return _query(path, "callers", {"name": name}, language, packs)
+
+
+@_engine_tool("What a function calls")
+def engine_callees(path: str, name: str, file: Optional[str] = None,
+                   language: Optional[str] = None,
+                   packs: Optional[list[str]] = None) -> Any:
+    """The calls ``name`` makes, each with its line of code and where the callee is defined
+    in the project (several definitions = ambiguous; library calls have none)."""
+    return _query(path, "callees", {"name": name, "file": file}, language, packs)
+
+
+@_engine_tool("Conditions that hold on every path to a line")
+def engine_guards(path: str, name: str, line: Optional[int] = None,
+                  file: Optional[str] = None, language: Optional[str] = None,
+                  packs: Optional[list[str]] = None) -> Any:
+    """The branch conditions, authorization-gate decorators and identity scoping that hold on
+    every feasible path to ``line`` in ``name`` (without ``line``: its data-access lines)."""
+    return _query(path, "guards", {"name": name, "line": line, "file": file}, language, packs)
+
+
+@_engine_tool("Decide a claim about a line over the feasible paths")
+def engine_check(path: str, name: str, line: int, kind: str,
+                 pattern: Optional[str] = None, file: Optional[str] = None,
+                 language: Optional[str] = None,
+                 packs: Optional[list[str]] = None) -> Any:
+    """Decide a claim about ``line`` in ``name``. ``kind`` is ``guarded_by`` (every feasible
+    path passes a condition or gate matching ``pattern``) or ``scoped_by_identity`` (the
+    resource operation there is filtered by the caller's identity). The verdict is
+    ``proved``, ``refuted`` with a witness path, or ``unknown`` when the engine has no facts."""
+    return _query(path, "check", {"name": name, "line": line, "kind": kind,
+                                  "pattern": pattern, "file": file}, language, packs)
 
 
 def _safe_unlink(path: str) -> None:

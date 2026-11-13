@@ -196,3 +196,73 @@ class FrameExecutableTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QueryArgsTest(unittest.TestCase):
+    def test_serve_args(self):
+        self.assertEqual(server._build_query_serve_args("/p"), ["query", "/p", "--serve"])
+        self.assertEqual(
+            server._build_query_serve_args("/p", language="java", packs=["a.toml"]),
+            ["query", "/p", "--serve", "-l", "java", "--pack", "a.toml"],
+        )
+
+
+_FAKE_SERVE = r'''
+import json, sys
+for line in sys.stdin:
+    req = json.loads(line)
+    if req["tool"] == "die":
+        sys.exit(3)
+    print(json.dumps({"noise": True}), flush=True)          # a stray line is skipped
+    print(json.dumps({"id": req["id"], "tool": req["tool"], "args": req["args"],
+                      "result": {"echo": req["args"]}}), flush=True)
+'''
+
+
+class QueryServerTest(unittest.TestCase):
+    """The warm-process protocol against a stand-in `frame query --serve`."""
+
+    def setUp(self):
+        import tempfile
+        self.dir = tempfile.mkdtemp()
+        self.script = os.path.join(self.dir, "fake_serve.py")
+        with open(self.script, "w") as fh:
+            fh.write(_FAKE_SERVE)
+        self._exe = server._frame_executable
+        server._frame_executable = lambda: __import__("sys").executable
+
+    def tearDown(self):
+        server._frame_executable = self._exe
+
+    def test_requests_reuse_one_process_and_match_ids(self):
+        qs = server._QueryServer([self.script])
+        try:
+            a = qs.ask("callers", {"name": "f"})
+            pid = qs.proc.pid
+            b = qs.ask("callees", {"name": "g"})
+            self.assertEqual(a["result"], {"echo": {"name": "f"}})
+            self.assertEqual(b["tool"], "callees")
+            self.assertNotIn("id", b)
+            self.assertEqual(qs.proc.pid, pid)          # warm: the same process answered
+        finally:
+            qs.close()
+
+    def test_a_dead_process_is_restarted_then_reported(self):
+        qs = server._QueryServer([self.script])
+        try:
+            qs.ask("handlers", {})
+            with self.assertRaises(RuntimeError):
+                qs.ask("die", {})                       # dies twice: restart once, then raise
+            self.assertEqual(qs.ask("handlers", {})["tool"], "handlers")   # usable again
+        finally:
+            qs.close()
+
+
+class EngineToolsRegisteredTest(unittest.TestCase):
+    def test_engine_tools_are_read_only_and_documented(self):
+        names = ["engine_handlers", "engine_handler_facts", "engine_siblings", "engine_trace",
+                 "engine_callers", "engine_callees", "engine_guards", "engine_check"]
+        for name in names:
+            fn = getattr(server, name)
+            self.assertIn("evidence", fn.__doc__)
+        self.assertEqual(len(names), len(server._QUERY_TOOLS))
