@@ -1,0 +1,32 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "frame",
+  "version": "0.3.0",
+  "description": "Frame, a verification-driven security agent, over MCP: scan source for vulnerabilities (taint analysis whose paths Z3 checks, in Python, JavaScript/TypeScript, Java, C# and C/C++), verify fixes, record baselines, generate verified fixes, and query the analysis engine (entry points, data flows, callers, path guards).",
+  "author": {
+    "name": "lambdasec",
+    "url": "https://github.com/lambdasec"
+  },
+  "homepage": "https://github.com/lambdasec/frame",
+  "repository": "https://github.com/lambdasec/frame-mcp",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "security",
+    "sast",
+    "sca",
+    "vulnerability",
+    "static-analysis"
+  ],
+  "extensions": {
+    "com.nousresearch.hermes": {
+      "servers": {
+        "frame": {
+          "trust": "untrusted",
+          "timeout": 1800
+        }
+      }
+    }
+  }
+}
