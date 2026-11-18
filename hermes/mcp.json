@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "frame": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "frame-mcp==0.3.0",
+        "--with",
+        "frame-security[scan]==1.1.7",
+        "frame-mcp"
+      ],
+      "env": {
+        "FRAME_LLM_BASE_URL": "${FRAME_LLM_BASE_URL}",
+        "FRAME_LLM_MODEL": "${FRAME_LLM_MODEL}",
+        "FRAME_LLM_API_KEY": "${FRAME_LLM_API_KEY}"
+      }
+    }
+  }
+}
