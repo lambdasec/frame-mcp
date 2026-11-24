@@ -1,5 +1,7 @@
 # frame-mcp
 
+[![lambdasec/frame-mcp MCP server](https://glama.ai/mcp/servers/lambdasec/frame-mcp/badges/score.svg)](https://glama.ai/mcp/servers/lambdasec/frame-mcp)
+
 mcp-name: io.github.lambdasec/frame-mcp
 
 An MCP server that exposes the [Frame](https://github.com/lambdasec/frame) security scanner to any MCP client, so a coding agent can scan code, verify fixes, and reason about vulnerabilities over stdio.
